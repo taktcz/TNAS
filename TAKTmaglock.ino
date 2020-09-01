@@ -12,6 +12,8 @@
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 
+#include "variables.h"
+
 
 #include <SPI.h>
 #include <Wire.h>
