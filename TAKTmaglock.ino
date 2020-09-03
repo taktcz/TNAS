@@ -27,14 +27,6 @@ PN532 nfc(pn532hsu);
 
 #define MAX_SRV_CLIENTS 1
 
-#if AP
-const char ssid[] = "maglock";
-const char password[] = "supersecret";
-#elif CLIENT
-const char* ssid = "trimen";
-const char* password = "ahojahoj";
-#endif
-
 bool inOTA = false;
 
 WiFiServer server(23); //create server on port 23
@@ -50,7 +42,7 @@ WiFiClient serverClient[MAX_SRV_CLIENTS];
 
    (2) Add cli for backup of progressions for need of reflashing and possibly for user management -> DONE
 
-   (3) Add telnet client for door usage reporting -> 
+   (3) Add telnet client for door usage reporting ->
 
    (4) Add OTA support -> must be protected with password (init trought cli?) -> DONE
 
@@ -153,25 +145,25 @@ void parser(char *databuf) {
         Serial.println("}");
         break;
 
-      case 'p':
-        serialNextIndex(databuf);
-        if (atoi(databuf) >= 1 && atoi(databuf) <= 10) {
-
-        }
-        break;
-
       case 'd':
         serialNextIndex(databuf);
-        if (atoi(databuf) >= 1 && atoi(databuf) <= 500) {
+        if (atol(databuf) == pwd) {
+          openDoor(true);
         }
         break;
 
       case 'o':
-        setup_ota();
+        serialNextIndex(databuf);
+        if (atol(databuf) == pwd) {
+          setup_ota();
+        }
+        else {
+          Serial.println("XX");
+        }
         break;
 
       default:
-        Serial.println("Accepted commands are #b(backup), #o(OTA), #t(setTime), #d(doorOpen)");
+        Serial.println("Accepted commands are #b(backup), #o(OTA), #d(doorOpen)");
         break;
     }
   }
@@ -430,7 +422,7 @@ void IRAM_ATTR isr() {
 void setup() {
   Serial.begin(115200);
   nfc.begin();
-  
+
 #if AP
   setupAP();
 #elif CLIENT

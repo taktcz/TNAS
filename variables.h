@@ -12,6 +12,8 @@
 #define AP 0 
 #define CLIENT 1
 
+uint64_t pwd = 776013698255;
+
 uint64_t cardUID[512] = {0, 0xA4004D0E, 0x4DD00D02};
 const char * members[512] = {0, "trimen", "trimen2"};
 char memberProgressionValue[512] = {0};
@@ -23,3 +25,11 @@ uint8_t valueOrder[255] = {255 , 227, 69, 27, 65, 43, 100, 226, 146, 76, 198, 13
 //uint8_t keyB[6] = {0x22, 0x7F, 0x69, 0x42, 0xDE, 0xF2};
 uint8_t keyA[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 uint8_t keyB[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+#if AP
+const char ssid[] = "maglock";
+const char password[] = "supersecret";
+#elif CLIENT
+const char* ssid = "trimen";
+const char* password = "ahojahoj";
+#endif
