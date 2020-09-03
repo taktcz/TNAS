@@ -51,6 +51,10 @@ WiFiClient serverClient[MAX_SRV_CLIENTS];
    (1) Add security check against unauthorised opening -> DONE
 
    (1) Add input for opening door from inside eg. disable security reporting for short period of time. -> DONE
+
+   (4) Use FRAM for storage
+
+   (2) Add GPIO I2C expander for controllimg status LEDs outside
 */
 
 /*
@@ -302,29 +306,30 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
 
   //for reading authenticate with key A and read 5th block
   if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyA)) {
+    //Read block
     nfc.mifareclassic_ReadDataBlock(currentblock, blockData);
   }
   else {
     Serial.println("Unable to authenticate for reading");
   }
-  //Check data in block to determine progression
+  //Check data in block to determine position
   uint8_t dataPosition = 0;
   uint8_t valueProgression = 0;
+  //Get position of data
   for (uint8_t i = 0; i <= 15; i++) {
     if (blockData[i] != 0) {
       dataPosition = i;
       break;
     }
   }
-
-  //Get position of data
+  //Get value at position
   for (uint8_t i = 0; i <= 254; i++) {
     if (blockData[dataPosition] ==  valueOrder[i]) {
       valueProgression = i;
       break;
     }
   }
-  //Check if data at position and value match progression
+
   Serial.print("valProgr: ");
   Serial.println(valueProgression, HEX);
   Serial.print("meValProgr: ");
@@ -333,10 +338,10 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
   Serial.println(dataPosition, HEX);
   Serial.print("memProgrPos: ");
   Serial.println(memberProgressionPosition[a], HEX);
-
+  //Check if data at position and value match progression
   if (valueProgression == memberProgressionValue[a] && dataPosition == memberProgressionPosition[a]) {
 
-    if (valueProgression == 254) {
+    if (valueProgression == 255) {
       dataPosition++;
       valueProgression = 0;
     }
@@ -381,6 +386,7 @@ uint8_t readUID() {
     nfc.PrintHex(UID, UIDLength);
 
     if (UIDLength == 4) {
+      //Convert UID array to single value
       UIDPass = UID[0];
       UIDPass = (UIDPass << 8) | UID[1];
       UIDPass = (UIDPass << 8) | UID[2];
@@ -396,6 +402,7 @@ uint8_t readUID() {
       }
 
     } else if (UIDLength == 7) {
+      //Convert UID array to single value
       UIDPass = UID[0];
       UIDPass = (UIDPass << 8) | UID[1];
       UIDPass = (UIDPass << 8) | UID[3];
@@ -415,8 +422,16 @@ uint8_t readUID() {
   }
 }
 
+unsigned long last_interrupt_time = 0;
+
 void IRAM_ATTR isr() {
-  openDoor(true);
+  //Debouncing
+  unsigned long interrupt_time = millis();
+  // If interrupts come faster than 200ms, assume it's a bounce and ignore
+  if (interrupt_time - last_interrupt_time > 200) {
+    openDoor(true);
+  }
+  last_interrupt_time = interrupt_time;
 }
 
 void setup() {
