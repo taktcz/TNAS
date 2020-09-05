@@ -256,10 +256,9 @@ bool saveToEEPROM() {
 
 //Check if UID from reader match with any member UID
 uint16_t compareUID(uint64_t uid) {
-  Serial.println("Before compare");
   for (uint16_t i = 0; i <= 511; i++) {
     if (cardUID[i] == uid) {
-      Serial.print("Found: ");
+      Serial.print("  Found: ");
       Serial.println(members[i]);
       return i;
     }
@@ -281,7 +280,7 @@ bool checkDoorStatus() {
 
 bool doorStatusOpen = false;
 
-bool openDoor(bool open) {
+void openDoor(bool open) {
 
   if (open) {
     doorStatusOpen = true;
@@ -302,16 +301,21 @@ bool openDoor(bool open) {
 void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
   uint8_t blockData[16] = {0};
   uint8_t newBlockData[16] = {0};
-  uint8_t currentblock = 5; // Use 5th block
+  uint8_t currentblock = 4; // Use 4th block
 
   //for reading authenticate with key A and read 5th block
-  if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyA)) {
+  if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyB)) {
     //Read block
     nfc.mifareclassic_ReadDataBlock(currentblock, blockData);
   }
   else {
     Serial.println("Unable to authenticate for reading");
   }
+
+  Serial.print("Blockdata: ");
+  nfc.PrintHex(blockData, 16);
+  Serial.println();
+
   //Check data in block to determine position
   uint8_t dataPosition = 0;
   uint8_t valueProgression = 0;
@@ -324,38 +328,32 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
   }
   //Get value at position
   for (uint8_t i = 0; i <= 254; i++) {
-    if (blockData[dataPosition] ==  valueOrder[i]) {
+    if (valueOrder[i] == blockData[dataPosition]) {
       valueProgression = i;
       break;
     }
   }
-
-  Serial.print("valProgr: ");
-  Serial.println(valueProgression, HEX);
-  Serial.print("meValProgr: ");
-  Serial.println(memberProgressionValue[a], HEX);
-  Serial.print("progrPos: ");
-  Serial.println(dataPosition, HEX);
-  Serial.print("memProgrPos: ");
-  Serial.println(memberProgressionPosition[a], HEX);
+  
   //Check if data at position and value match progression
   if (valueProgression == memberProgressionValue[a] && dataPosition == memberProgressionPosition[a]) {
 
-    if (valueProgression == 255) {
+    if (valueProgression == 254) {
       dataPosition++;
       valueProgression = 0;
-    }
-    else if (dataPosition == 15) {
-      dataPosition = 0;
     }
     else {
       valueProgression++;
     }
+    if (dataPosition == 16) {
+      dataPosition = 0;
+    }
+
 
     //Write new data to card
-    if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyA)) {
+    if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyB)) {
       newBlockData[dataPosition] = valueOrder[valueProgression];
-      memberProgressionValue[a] = valueOrder[valueProgression];
+      memberProgressionValue[a] = valueProgression;
+      memberProgressionPosition[a] = dataPosition;
       nfc.mifareclassic_WriteDataBlock(currentblock, newBlockData);
 
       //Save data to EEPROM
@@ -371,7 +369,7 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
   }
 }
 
-uint8_t readUID() {
+void readUID() {
   bool success = false;
   uint8_t UID[7] = {0};
   uint8_t UIDLength = 0;
@@ -472,7 +470,7 @@ void setup() {
   }
 
   //After start restore data from EEPROM
-  readFromEEPROM();
+  //readFromEEPROM();
 
 }
 
@@ -487,21 +485,21 @@ void loop() {
 
   unsigned long currentMillis = millis();
 
-  if (currentMillis - interval > previousReadMillis && doorStatusOpen == true) {
+  if (currentMillis - interval > previousReadMillis ) { //&& doorStatusOpen == true) {
     previousReadMillis = currentMillis;
     readUID();
   }
+  /*
+    if (currentMillis - doorOpenCountdown > previousOpenMillis && doorStatusOpen == false) {
+      previousOpenMillis = currentMillis;
+      openDoor(true);
+    }
+    else {
+      openDoor(false);
+    }
 
-  if (currentMillis - doorOpenCountdown > previousOpenMillis && doorStatusOpen == false) {
-    previousOpenMillis = currentMillis;
-    openDoor(true);
-  }
-  else {
-    openDoor(false);
-  }
-
-  if (doorStatusOpen == false && checkDoorStatus() == true) {
-    alarm();
-  }
-
+    if (doorStatusOpen == false && checkDoorStatus() == true) {
+      alarm();
+    }
+  */
 }
