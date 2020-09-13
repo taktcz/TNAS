@@ -11,7 +11,11 @@
  *  Value and number of byte is saved for each card. If card is compromised then copied card stops working, if genuine card is read before copied one and vice versa.
  *  In either case we can easily determine which card was compromised, because it stop working for valid user or attacker for 4000 iterations.
  *  
+ *  If connecting to WiFi is unsuccessfull, ESP will switch to AP mode and continue.
+ *  
  *  shuffle.c is C app that you can use for generation of array of unique random numbers from 1 to MAX.
+ *  
+ *  generate_random_string_bash.c is bash comand used for generating pwd
  *  
  *  
  *   

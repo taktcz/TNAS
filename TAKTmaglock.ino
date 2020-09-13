@@ -25,10 +25,6 @@ PN532_HSU pn532hsu(Serial2);
 PN532 nfc(pn532hsu);
 
 
-#define MAX_SRV_CLIENTS 1
-
-bool inOTA = false;
-
 WiFiServer server(23); //create server on port 23
 WiFiClient serverClient[MAX_SRV_CLIENTS];
 
@@ -59,8 +55,9 @@ WiFiClient serverClient[MAX_SRV_CLIENTS];
 
 /*
    EEPROM map:
-   0-511 - memberProgressionValue
-   512-1024 - memberProgressionPosition
+   0 - Init bit - if zero save arrays to EEPROM else load.
+   1-512 - memberProgressionValue
+   513-1025 - memberProgressionPosition
 */
 
 void setupAP() {
@@ -75,7 +72,8 @@ void setupClient() {
   while (WiFi.status() != WL_CONNECTED && i++ < 20) delay(500);
   if (i == 21) {
     Serial.print("Could not connect to"); Serial.println(ssid);
-    while (1) delay(500);
+    Serial.println("Rollback to AP");
+    setupAP();
   }
 }
 
@@ -90,11 +88,13 @@ void setup_ota() {
 
   ArduinoOTA.onEnd([]() {
     Serial.println("\nEnd");
+    EEPROM.write(0, 0);
+    EEPROM.commit();
     inOTA = false;
   });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
   });
 
   ArduinoOTA.setHostname("maglock-OTA");
@@ -107,7 +107,6 @@ void setup_ota() {
   for (; inOTA == true;) {
     ArduinoOTA.handle();
     delay(1);
-    Serial.println("IN OTA");
     //yield();
   }
 }
@@ -123,42 +122,69 @@ void parser(char *databuf) {
 
       //*****************************
       case 'b':
-        Serial.print("char memberProgressionPosition[512] = {");
-        for (uint16_t x = 0; x <= 512; x++) {
-          Serial.print(EEPROM.read(x + 512), DEC);
-          Serial.print(", ");
+        serialNextIndex(databuf);
+        if (strncmp(pwd, databuf, 32) == 0) {
+          Serial.print("char * members[512] = {");
+          serverClient[0].print("char * members[512] = {");
+          for(uint16_t x = 0; x <= 512; x++){
+            Serial.print(members[x]);
+            serverClient[0].print(members[x]);
+            Serial.print(", "); 
+            serverClient[0].print(", ");
+          }
+          Serial.print("char memberProgressionPosition[512] = {");
+          serverClient[0].print("char memberProgressionPosition[512] = {");
+          for (uint16_t x = 0; x <= 512; x++) {
+            Serial.print(EEPROM.read(x + 513), DEC);
+            Serial.print(", ");
+            serverClient[0].print(EEPROM.read(x + 513), DEC);
+            serverClient[0].print(", ");
+          }
+          Serial.println("}");
+          serverClient[0].println("}");
+          Serial.print("char memberProgressionValue[512] = {");
+          serverClient[0].print("char memberProgressionValue[512] = {");
+          for (uint16_t x = 0; x <= 512; x++) {
+            Serial.print(EEPROM.read(x + 1), DEC);
+            Serial.print(", ");
+            serverClient[0].print(EEPROM.read(x + 1), DEC);
+            serverClient[0].print(", ");
+          }
+          Serial.println("}");
+          serverClient[0].println("}");
+          Serial.print("uint8_t byteOrder[16] = {");
+          serverClient[0].print("uint8_t byteOrder[16] = {");
+          for (uint16_t i = 0; i <= 15; i++) {
+            Serial.print(byteOrder[i], DEC);
+            Serial.print(", ");
+            serverClient[0].print(byteOrder[i], DEC);
+            serverClient[0].print(", ");
+          }
+          Serial.println("}");
+          serverClient[0].println("}");
+          Serial.print("uint8_t valueOrder[255] = {");
+          serverClient[0].print("uint8_t valueOrder[255] = {");
+          for (uint8_t i = 0; i <= 254; i++) {
+            Serial.print(valueOrder[i], DEC);
+            Serial.print(", ");
+            serverClient[0].print(valueOrder[i], DEC);
+            serverClient[0].print(", ");
+          }
+          Serial.println("}");
+          serverClient[0].println("}");
         }
-        Serial.println("}");
-        Serial.print("char memberProgressionValue[512] = {");
-        for (uint16_t x = 0; x <= 512; x++) {
-          Serial.print(EEPROM.read(x), DEC);
-          Serial.print(", ");
-        }
-        Serial.println("}");
-        Serial.print("uint8_t byteOrder[16] = {");
-        for (uint16_t i = 0; i <= 15; i++) {
-          Serial.print(byteOrder[i], DEC);
-          Serial.print(", ");
-        }
-        Serial.println("}");
-        Serial.print("uint8_t valueOrder[255] = {");
-        for (uint8_t i = 0; i <= 254; i++) {
-          Serial.print(valueOrder[i], DEC);
-          Serial.print(", ");
-        }
-        Serial.println("}");
         break;
 
       case 'd':
         serialNextIndex(databuf);
-        if (atol(databuf) == pwd) {
+        if (strncmp(pwd, databuf, 32) == 0) {
           openDoor(true);
         }
         break;
 
       case 'o':
         serialNextIndex(databuf);
-        if (atol(databuf) == pwd) {
+        if (strncmp(pwd, databuf, 32) == 0) {
           setup_ota();
         }
         else {
@@ -167,7 +193,8 @@ void parser(char *databuf) {
         break;
 
       default:
-        Serial.println("Accepted commands are #b(backup), #o(OTA), #d(doorOpen)");
+        Serial.println("Accepted commands are #b(backup) [pwd], #o(OTA) [pwd], #d(doorOpen) [pwd]");
+        serverClient[0].println("Accepted commands are #b(backup) [pwd], #o(OTA) [pwd], #d(doorOpen) [pwd]");
         break;
     }
   }
@@ -232,8 +259,8 @@ void serialCore() {
 
 void readFromEEPROM() {
   for (uint16_t x = 0; x <= 511; x++) {
-    memberProgressionValue[x] = EEPROM.read(x);
-    memberProgressionPosition[x] = EEPROM.read(x + 512);
+    memberProgressionValue[x] = EEPROM.read(x + 1);
+    memberProgressionPosition[x] = EEPROM.read(x + 513);
   }
   Serial.println("Data succesfully retrieved");
 }
@@ -241,8 +268,8 @@ void readFromEEPROM() {
 bool saveToEEPROM() {
 
   for (int16_t i = 0; i <= 511; i++) {
-    EEPROM.write(i, memberProgressionValue[i]);
-    EEPROM.write((i + 512), memberProgressionPosition[i]);
+    EEPROM.write(i + 1, memberProgressionValue[i]);
+    EEPROM.write((i + 513), memberProgressionPosition[i]);
   }
   if (!EEPROM.commit()) {
     Serial.println("Unable to write to EEPROM");
@@ -260,6 +287,8 @@ uint16_t compareUID(uint64_t uid) {
     if (cardUID[i] == uid) {
       Serial.print("  Found: ");
       Serial.println(members[i]);
+      serverClient[0].print("  Found: ");
+      serverClient[0].println(members[i]);
       return i;
     }
   }
@@ -271,28 +300,34 @@ void alarm() {
 }
 
 bool checkDoorStatus() {
-  if (digitalRead(inductiveSensorPin) != HIGH) {
+  if (digitalRead(inductiveSensorPin) != inductiveSensorDefault) {
     Serial.println("Unauthorized door access");
     return true;
   }
   return false;
 }
 
-bool doorStatusOpen = false;
-
 void openDoor(bool open) {
 
   if (open) {
     doorStatusOpen = true;
-    digitalWrite(maglockControlPin, HIGH);
+    previousOpenMillis = millis();
+    Serial.println("Door open");
+    serverClient[0].println("Door open");
+    digitalWrite(maglockControlPin, !maglockDefaultOn);
+    digitalWrite(doorOpenButtonlLED, HIGH);
     delay(20);
-    if (digitalRead(maglockControlPin) != LOW) {
+    if (digitalRead(magLockReadbackPin) != maglockReadbackDefault) {
       Serial.println("Unable read to state of maglock");
+      serverClient[0].println("Unable read to state of maglock");
     }
   }
   else {
+    Serial.println("Door close");
+    serverClient[0].println("Door close");
     doorStatusOpen = false;
-    digitalWrite(maglockControlPin, LOW);
+    digitalWrite(maglockControlPin, maglockDefaultOn);
+    digitalWrite(doorOpenButtonlLED, LOW);
   }
 }
 
@@ -310,6 +345,7 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
   }
   else {
     Serial.println("Unable to authenticate for reading");
+    serverClient[0].println("Unable to authenticate for reading");
   }
 
   Serial.print("Blockdata: ");
@@ -333,7 +369,7 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
       break;
     }
   }
-  
+
   //Check if data at position and value match progression
   if (valueProgression == memberProgressionValue[a] && dataPosition == memberProgressionPosition[a]) {
 
@@ -362,10 +398,12 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
     }
     else {
       Serial.println("Unable to authenticate for writing");
+      serverClient[0].println("Unable to authenticate for writing");
     }
   }
   else {
     Serial.println("Invalid card data");
+    serverClient[0].println("Invalid card data");
   }
 }
 
@@ -397,6 +435,7 @@ void readUID() {
       }
       else {
         Serial.println("UID invalid");
+        serverClient[0].println("UID invalid");
       }
 
     } else if (UIDLength == 7) {
@@ -415,6 +454,7 @@ void readUID() {
       }
       else {
         Serial.println("UID invalid");
+        serverClient[0].println("UID invalid");
       }
     }
   }
@@ -427,14 +467,26 @@ void IRAM_ATTR isr() {
   unsigned long interrupt_time = millis();
   // If interrupts come faster than 200ms, assume it's a bounce and ignore
   if (interrupt_time - last_interrupt_time > 200) {
+    Serial.print("Manual ");
     openDoor(true);
   }
   last_interrupt_time = interrupt_time;
 }
 
+uint32_t versiondata;
+
 void setup() {
   Serial.begin(115200);
+  Serial.println("Hello!");
   nfc.begin();
+
+  versiondata = nfc.getFirmwareVersion();
+  if (! versiondata) {
+    Serial.print("Didn't find PN53x board");
+  }
+  else {
+    Serial.println("PN532 found");
+  }
 
 #if AP
   setupAP();
@@ -447,6 +499,7 @@ void setup() {
   pinMode(inductiveSensorPin, INPUT_PULLUP);
   pinMode(manualOpenPin, INPUT_PULLUP);
   pinMode(doorOpenAlarm, OUTPUT);
+  pinMode(doorOpenButtonlLED, OUTPUT);
 
   attachInterrupt(manualOpenPin, isr, FALLING);
 
@@ -461,22 +514,17 @@ void setup() {
     Serial.println("Unable to initialize EEPROM");
   }
 
-  if (!nfc.getFirmwareVersion()) {
-    Serial.println("PN532 communication error, check connection and restart");
-    while (true); // Stop
+  //If this is first run copy arrays to EEPROM
+  if (EEPROM.read(0) == 0) {
+    EEPROM.write(0, 1);
+    saveToEEPROM();
   }
   else {
-    Serial.println("PN532 found");
+    //After start restore data from EEPROM
+    readFromEEPROM();
   }
-
-  //After start restore data from EEPROM
-  //readFromEEPROM();
-
 }
 
-uint16_t interval = 1000;
-long previousReadMillis = 0;        // will store last time LED was updated
-long previousOpenMillis = 0;
 
 void loop() {
 
@@ -484,22 +532,18 @@ void loop() {
   serialCore();
 
   unsigned long currentMillis = millis();
-
-  if (currentMillis - interval > previousReadMillis ) { //&& doorStatusOpen == true) {
-    previousReadMillis = currentMillis;
-    readUID();
+  if (versiondata) {
+    if (currentMillis - previousReadMillis >= cardReadInterval   && doorStatusOpen == false) {
+      previousReadMillis = currentMillis;
+      readUID();
+    }
   }
-  /*
-    if (currentMillis - doorOpenCountdown > previousOpenMillis && doorStatusOpen == false) {
-      previousOpenMillis = currentMillis;
-      openDoor(true);
-    }
-    else {
-      openDoor(false);
-    }
 
-    if (doorStatusOpen == false && checkDoorStatus() == true) {
-      alarm();
+  if (doorStatusOpen == true && digitalRead(manualOpenPin) == HIGH) {
+    if (currentMillis - previousOpenMillis >= doorOpenCountdown) {
+      openDoor(false);
+      previousOpenMillis = millis();
     }
-  */
+  }
+
 }
