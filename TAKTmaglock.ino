@@ -126,12 +126,14 @@ void parser(char *databuf) {
         if (strncmp(pwd, databuf, 32) == 0) {
           Serial.print("char * members[512] = {");
           serverClient[0].print("char * members[512] = {");
-          for(uint16_t x = 0; x <= 512; x++){
+          for (uint16_t x = 0; x <= 512; x++) {
             Serial.print(members[x]);
             serverClient[0].print(members[x]);
-            Serial.print(", "); 
+            Serial.print(", ");
             serverClient[0].print(", ");
           }
+          Serial.println("}");
+          serverClient[0].println("}");
           Serial.print("char memberProgressionPosition[512] = {");
           serverClient[0].print("char memberProgressionPosition[512] = {");
           for (uint16_t x = 0; x <= 512; x++) {
@@ -339,72 +341,74 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
   uint8_t currentblock = 4; // Use 4th block
 
   //for reading authenticate with key A and read 5th block
-  if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyB)) {
+  if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyA)) {
     //Read block
     nfc.mifareclassic_ReadDataBlock(currentblock, blockData);
+
+    Serial.print("Blockdata: ");
+    nfc.PrintHex(blockData, 16);
+    Serial.println();
+
+    //Check data in block to determine position
+    uint8_t dataPosition = 0;
+    uint8_t valueProgression = 0;
+    //Get position of data
+    for (uint8_t i = 0; i <= 15; i++) {
+      if (blockData[i] != 0) {
+        dataPosition = i;
+        break;
+      }
+    }
+    //Get value at position
+    for (uint8_t i = 0; i <= 254; i++) {
+      if (valueOrder[i] == blockData[dataPosition]) {
+        valueProgression = i;
+        break;
+      }
+    }
+
+    //Check if data at position and value match progression
+    if (valueProgression == memberProgressionValue[a] && dataPosition == memberProgressionPosition[a]) {
+
+      if (valueProgression == 254) {
+        dataPosition++;
+        valueProgression = 0;
+      }
+      else {
+        valueProgression++;
+      }
+      if (dataPosition == 16) {
+        dataPosition = 0;
+      }
+
+
+      //Write new data to card
+      if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyA)) {
+        newBlockData[dataPosition] = valueOrder[valueProgression];
+        memberProgressionValue[a] = valueProgression;
+        memberProgressionPosition[a] = dataPosition;
+        nfc.mifareclassic_WriteDataBlock(currentblock, newBlockData);
+
+        //Save data to EEPROM
+        saveToEEPROM();
+        openDoor(true);
+      }
+      else {
+        Serial.println("Unable to authenticate for writing");
+        serverClient[0].println("Unable to authenticate for writing");
+      }
+    }
+    else {
+      Serial.println("Invalid card data");
+      serverClient[0].println("Invalid card data");
+    }
+
   }
   else {
     Serial.println("Unable to authenticate for reading");
     serverClient[0].println("Unable to authenticate for reading");
   }
 
-  Serial.print("Blockdata: ");
-  nfc.PrintHex(blockData, 16);
-  Serial.println();
-
-  //Check data in block to determine position
-  uint8_t dataPosition = 0;
-  uint8_t valueProgression = 0;
-  //Get position of data
-  for (uint8_t i = 0; i <= 15; i++) {
-    if (blockData[i] != 0) {
-      dataPosition = i;
-      break;
-    }
-  }
-  //Get value at position
-  for (uint8_t i = 0; i <= 254; i++) {
-    if (valueOrder[i] == blockData[dataPosition]) {
-      valueProgression = i;
-      break;
-    }
-  }
-
-  //Check if data at position and value match progression
-  if (valueProgression == memberProgressionValue[a] && dataPosition == memberProgressionPosition[a]) {
-
-    if (valueProgression == 254) {
-      dataPosition++;
-      valueProgression = 0;
-    }
-    else {
-      valueProgression++;
-    }
-    if (dataPosition == 16) {
-      dataPosition = 0;
-    }
-
-
-    //Write new data to card
-    if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyB)) {
-      newBlockData[dataPosition] = valueOrder[valueProgression];
-      memberProgressionValue[a] = valueProgression;
-      memberProgressionPosition[a] = dataPosition;
-      nfc.mifareclassic_WriteDataBlock(currentblock, newBlockData);
-
-      //Save data to EEPROM
-      saveToEEPROM();
-      openDoor(true);
-    }
-    else {
-      Serial.println("Unable to authenticate for writing");
-      serverClient[0].println("Unable to authenticate for writing");
-    }
-  }
-  else {
-    Serial.println("Invalid card data");
-    serverClient[0].println("Invalid card data");
-  }
 }
 
 void readUID() {
@@ -413,7 +417,7 @@ void readUID() {
   uint8_t UIDLength = 0;
   uint64_t UIDPass = 0;
 
-  success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, UID, &UIDLength);
+  success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, UID, &UIDLength, 5000);
 
   if (success) {
     Serial.println("Card found");
@@ -488,6 +492,13 @@ void setup() {
     Serial.println("PN532 found");
   }
 
+  Serial.print("Found chip PN5"); Serial.println((versiondata >> 24) & 0xFF, HEX);
+  Serial.print("Firmware ver. "); Serial.print((versiondata >> 16) & 0xFF, DEC);
+  Serial.print('.'); Serial.println((versiondata >> 8) & 0xFF, DEC);
+
+  nfc.setPassiveActivationRetries(0xFF);
+  nfc.SAMConfig();
+
 #if AP
   setupAP();
 #elif CLIENT
@@ -532,15 +543,19 @@ void loop() {
   serialCore();
 
   unsigned long currentMillis = millis();
-  if (versiondata) {
-    if (currentMillis - previousReadMillis >= cardReadInterval   && doorStatusOpen == false) {
-      previousReadMillis = currentMillis;
+
+  if (currentMillis - cardReadInterval >= previousReadMillis && doorStatusOpen == false) {
+    previousReadMillis = currentMillis;
+    if (! versiondata) {
+      Serial.println("Didn't find PN53x board");
+    }
+    else {
       readUID();
     }
   }
 
   if (doorStatusOpen == true && digitalRead(manualOpenPin) == HIGH) {
-    if (currentMillis - previousOpenMillis >= doorOpenCountdown) {
+    if (currentMillis - doorOpenCountdown >= previousOpenMillis) {
       openDoor(false);
       previousOpenMillis = millis();
     }
