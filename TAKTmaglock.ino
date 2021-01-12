@@ -36,21 +36,11 @@ WiFiClient serverClient[MAX_SRV_CLIENTS];
 
    Prioroty 1-4
 
-   (2) Add cli for backup of progressions for need of reflashing and possibly for user management -> DONE
-
-   (3) Add telnet client for door usage reporting ->
-
-   (4) Add OTA support -> must be protected with password (init trought cli?) -> DONE
-
-   (1) Add timer for door opening ( with audiovisual warning when opened for too long)
-
-   (1) Add security check against unauthorised opening -> DONE
-
-   (1) Add input for opening door from inside eg. disable security reporting for short period of time. -> DONE
+   (1) Modify EEPROM writing, so only changes are actually writen
 
    (4) Use FRAM for storage
 
-   (2) Add GPIO I2C expander for controllimg status LEDs outside
+   (2) Use PN532 GPIOs for controllimg status LEDs outside
 */
 
 /*
@@ -58,6 +48,7 @@ WiFiClient serverClient[MAX_SRV_CLIENTS];
    0 - Init bit - if zero save arrays to EEPROM else load.
    1-512 - memberProgressionValue
    513-1025 - memberProgressionPosition
+   1026 - uint8_t door delay
 */
 
 void setupAP() {
@@ -126,7 +117,7 @@ void parser(char *databuf) {
         if (strncmp(pwd, databuf, 32) == 0) {
           Serial.print("char * members[512] = {");
           serverClient[0].print("char * members[512] = {");
-          for (uint16_t x = 0; x <= 512; x++) {
+          for (uint16_t x = 0; x <= 511; x++) {
             Serial.print(members[x]);
             serverClient[0].print(members[x]);
             Serial.print(", ");
@@ -189,14 +180,18 @@ void parser(char *databuf) {
         if (strncmp(pwd, databuf, 32) == 0) {
           setup_ota();
         }
-        else {
-          Serial.println("XX");
+        break;
+
+      case 'f':
+        serialNextIndex(databuf);
+        if (strncmp(pwd, databuf, 32) == 0) {
+          readUID(true);//false == fix broken card
         }
         break;
 
       default:
-        Serial.println("Accepted commands are #b(backup) [pwd], #o(OTA) [pwd], #d(doorOpen) [pwd]");
-        serverClient[0].println("Accepted commands are #b(backup) [pwd], #o(OTA) [pwd], #d(doorOpen) [pwd]");
+        Serial.println("Accepted commands are #b(backup) [pwd], #o(OTA) [pwd], #d(doorOpen) [pwd], #f(fixBr0ken card) [pwd]");
+        serverClient[0].println("Accepted commands are #b(backup) [pwd], #o(OTA) [pwd], #d(doorOpen) [pwd],, #f(fixBr0ken card) [pwd]");
         break;
     }
   }
@@ -335,7 +330,7 @@ void openDoor(bool open) {
 
 
 //Read block from card, check if stored informations are valid and then write new info
-void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
+void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength, bool fix) {
   uint8_t blockData[16] = {0};
   uint8_t newBlockData[16] = {0};
   uint8_t currentblock = 4; // Use 4th block
@@ -398,6 +393,18 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
         serverClient[0].println("Unable to authenticate for writing");
       }
     }
+    else if (fix) {
+      if (nfc.mifareclassic_AuthenticateBlock (uid, uidLength, currentblock, 1, keyA)) {
+        newBlockData[dataPosition] = valueOrder[valueProgression];
+        memberProgressionValue[a] = valueProgression;
+        memberProgressionPosition[a] = dataPosition;
+        nfc.mifareclassic_WriteDataBlock(currentblock, newBlockData);
+
+        //Save data to EEPROM
+        saveToEEPROM();
+        Serial.println("Card fixed");
+      }
+    }
     else {
       Serial.println("Invalid card data");
       serverClient[0].println("Invalid card data");
@@ -411,7 +418,7 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength) {
 
 }
 
-void readUID() {
+void readUID(bool fix) {
   bool success = false;
   uint8_t UID[7] = {0};
   uint8_t UIDLength = 0;
@@ -435,7 +442,7 @@ void readUID() {
       //Serial.println(UIDPass, HEX);
       uint16_t number = compareUID(UIDPass);
       if (number != 0) {
-        cardRW(number, UID, UIDLength);
+        cardRW(number, UID, UIDLength, fix);
       }
       else {
         Serial.println("UID invalid");
@@ -454,7 +461,7 @@ void readUID() {
       //Serial.println(UIDPass, HEX);
       int number = compareUID(UIDPass);
       if (number != 0) {
-        cardRW(number, UID, UIDLength);
+        cardRW(number, UID, UIDLength, fix);
       }
       else {
         Serial.println("UID invalid");
@@ -550,7 +557,7 @@ void loop() {
       Serial.println("Didn't find PN53x board");
     }
     else {
-      readUID();
+      readUID(false);//false == do not fix broken card
     }
   }
 
