@@ -127,7 +127,7 @@ void parser(char *databuf) {
           serverClient[0].println("}");
           Serial.print("char memberProgressionPosition[512] = {");
           serverClient[0].print("char memberProgressionPosition[512] = {");
-          for (uint16_t x = 0; x <= 512; x++) {
+          for (uint16_t x = 0; x <= 511; x++) {
             Serial.print(EEPROM.read(x + 513), DEC);
             Serial.print(", ");
             serverClient[0].print(EEPROM.read(x + 513), DEC);
@@ -137,7 +137,7 @@ void parser(char *databuf) {
           serverClient[0].println("}");
           Serial.print("char memberProgressionValue[512] = {");
           serverClient[0].print("char memberProgressionValue[512] = {");
-          for (uint16_t x = 0; x <= 512; x++) {
+          for (uint16_t x = 0; x <= 511; x++) {
             Serial.print(EEPROM.read(x + 1), DEC);
             Serial.print(", ");
             serverClient[0].print(EEPROM.read(x + 1), DEC);
@@ -185,13 +185,13 @@ void parser(char *databuf) {
       case 'f':
         serialNextIndex(databuf);
         if (strncmp(pwd, databuf, 32) == 0) {
-          readUID(true);//false == fix broken card
+          readUID(true);//true == fix broken card
         }
         break;
 
       default:
         Serial.println("Accepted commands are #b(backup) [pwd], #o(OTA) [pwd], #d(doorOpen) [pwd], #f(fixBr0ken card) [pwd]");
-        serverClient[0].println("Accepted commands are #b(backup) [pwd], #o(OTA) [pwd], #d(doorOpen) [pwd],, #f(fixBr0ken card) [pwd]");
+        serverClient[0].println("Accepted commands are #b(backup) [pwd], #o(OTA) [pwd], #d(doorOpen) [pwd], #f(fixBr0ken card) [pwd]");
         break;
     }
   }
