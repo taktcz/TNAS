@@ -311,6 +311,8 @@ void openDoor(bool open) {
     previousOpenMillis = millis();
     Serial.println("Door open");
     serverClient[0].println("Door open");
+    uint8_t pins[8] = {1, 1, 1, 1, 1, 0};
+    nfc.writeGPIO(0xDC);
     digitalWrite(maglockControlPin, !maglockDefaultOn);
     digitalWrite(doorOpenButtonlLED, HIGH);
     delay(20);
@@ -323,6 +325,8 @@ void openDoor(bool open) {
     Serial.println("Door close");
     serverClient[0].println("Door close");
     doorStatusOpen = false;
+    uint8_t pins[8] = {1, 1, 1, 0, 1, 0};
+    nfc.writeGPIO(0xD4);
     digitalWrite(maglockControlPin, maglockDefaultOn);
     digitalWrite(doorOpenButtonlLED, LOW);
   }
@@ -391,6 +395,9 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength, bool fix) {
       else {
         Serial.println("Unable to authenticate for writing");
         serverClient[0].println("Unable to authenticate for writing");
+        nfc.writeGPIO(0xF4);
+        delay(3000);
+        nfc.writeGPIO(0xD4);
       }
     }
     else if (fix) {
@@ -408,12 +415,18 @@ void cardRW(uint16_t a, uint8_t uid[], uint8_t uidLength, bool fix) {
     else {
       Serial.println("Invalid card data");
       serverClient[0].println("Invalid card data");
+      nfc.writeGPIO(0xF4);
+      delay(3000);
+      nfc.writeGPIO(0xD4);
     }
 
   }
   else {
     Serial.println("Unable to authenticate for reading");
     serverClient[0].println("Unable to authenticate for reading");
+    nfc.writeGPIO(0xF4);
+    delay(3000);
+    nfc.writeGPIO(0xD4);
   }
 
 }
@@ -447,6 +460,9 @@ void readUID(bool fix) {
       else {
         Serial.println("UID invalid");
         serverClient[0].println("UID invalid");
+        nfc.writeGPIO(0xF4);
+        delay(3000);
+        nfc.writeGPIO(0xD4);
       }
 
     } else if (UIDLength == 7) {
@@ -466,6 +482,9 @@ void readUID(bool fix) {
       else {
         Serial.println("UID invalid");
         serverClient[0].println("UID invalid");
+        nfc.writeGPIO(0xF4);
+        delay(3000);
+        nfc.writeGPIO(0xD4);
       }
     }
   }
